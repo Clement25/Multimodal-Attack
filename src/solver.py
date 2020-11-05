@@ -178,8 +178,6 @@ class Solver(object):
 
         self.eval(mode="test", to_print=True)
 
-
-
     
     def eval(self,mode=None, to_print=False):
         assert(mode is not None)

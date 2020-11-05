@@ -23,8 +23,6 @@ def masked_max(tensor, mask, dim):
     neg_inf[~mask] = -math.inf
     return (masked + neg_inf).max(dim=dim)
 
-
-
 # let's define a simple model that can deal with multimodal variable length sequence
 class MISA(nn.Module):
     def __init__(self, config):
@@ -42,7 +40,6 @@ class MISA(nn.Module):
         self.dropout_rate = dropout_rate = config.dropout
         self.activation = self.config.activation()
         self.tanh = nn.Tanh()
-        
         
         rnn = nn.LSTM if self.config.rnncell == "lstm" else nn.GRU
         # defining modules - two layer bidirectional LSTM with layer norm in between
@@ -62,8 +59,6 @@ class MISA(nn.Module):
         
         self.arnn1 = rnn(input_sizes[2], hidden_sizes[2], bidirectional=True)
         self.arnn2 = rnn(2*hidden_sizes[2], hidden_sizes[2], bidirectional=True)
-
-
 
         ##########################################
         # mapping modalities to same sized space

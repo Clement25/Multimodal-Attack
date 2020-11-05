@@ -12,7 +12,6 @@ from subprocess import check_call, CalledProcessError
 import torch
 import torch.nn as nn
 
-
 def to_pickle(obj, path):
     with open(path, 'wb') as f:
         pickle.dump(obj, f)
@@ -20,17 +19,14 @@ def load_pickle(path):
     with open(path, 'rb') as f:
         return pickle.load(f)
 
-
 # construct a word2id mapping that automatically takes increment when new words are encountered
 word2id = defaultdict(lambda: len(word2id))
 UNK = word2id['<unk>']
 PAD = word2id['<pad>']
 
-
 # turn off the word2id - define a named function here to allow for pickling
 def return_unk():
     return UNK
-
 
 def load_emb(w2i, path_to_embedding, embedding_size=300, embedding_vocab=2196017, init_emb=None):
     if init_emb is None:
@@ -49,10 +45,6 @@ def load_emb(w2i, path_to_embedding, embedding_size=300, embedding_vocab=2196017
             found += 1
     print(f"Found {found} words in the embedding file.")
     return torch.tensor(emb_mat).float()
-
-
-
-
 
 class MOSI:
     def __init__(self, config):
@@ -74,11 +66,9 @@ class MOSI:
             self.pretrained_emb, self.word2id = torch.load(CACHE_PATH)
 
         except:
-
             # create folders for storing the data
             if not os.path.exists(DATA_PATH):
                 check_call(' '.join(['mkdir', '-p', DATA_PATH]), shell=True)
-
 
             # download highlevel features, low-level (raw) data and labels for the dataset MOSI
             # if the files are already present, instead of downloading it you just load it yourself.

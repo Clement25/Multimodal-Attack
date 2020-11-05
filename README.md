@@ -6,8 +6,6 @@ Code for the [ACM MM 2020](https://2020.acmmm.org) paper [MISA: Modality-Invaria
   <img width="600" src="misa-pic.png">
 </p>
 
-
-
 ### Setup the environment
 
 We work with a conda environment.

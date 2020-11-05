@@ -9,9 +9,8 @@ from torch import optim
 import torch.nn as nn
 
 # path to a pretrained word embedding file
-word_emb_path = '/home/devamanyu/glove.840B.300d.txt'
+word_emb_path = '/home/henry/glove/glove.840B.300d.txt'
 assert(word_emb_path is not None)
-
 
 username = Path.home().name
 project_dir = Path(__file__).resolve().parent.parent
@@ -23,7 +22,6 @@ optimizer_dict = {'RMSprop': optim.RMSprop, 'Adam': optim.Adam}
 activation_dict = {'elu': nn.ELU, "hardshrink": nn.Hardshrink, "hardtanh": nn.Hardtanh,
                    "leakyrelu": nn.LeakyReLU, "prelu": nn.PReLU, "relu": nn.ReLU, "rrelu": nn.RReLU,
                    "tanh": nn.Tanh}
-
 
 def str2bool(v):
     """string to boolean"""
