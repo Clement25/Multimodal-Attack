@@ -4,9 +4,11 @@
 
 ### 1. Description
 
-Simply modify the inputs based on backpropagation using FGSM in the trained model. FGSM attack is given by
+Simply modify the inputs based on backpropagation using FGSM in the trained model. The FGSM attacking method is given by the following formula
 
-$$ \eta = \epsilon * sign(\Delta_x J(\theta, x, y)) $$
+![FGSM](image/FGSM.png)
+
+Where $\epsilon$ is the step size for the gradient ascent.
 
 ### 2. Realization Plan
 
