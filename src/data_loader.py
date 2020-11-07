@@ -76,7 +76,6 @@ def get_loader(config, shuffle=True):
 
         bert_details = []
         for sample in batch:
-            import ipdb; ipdb.set_trace()
             text = " ".join(sample[0][3])
             encoded_bert_sent = bert_tokenizer.encode_plus(
                 text, max_length=SENT_LEN+2, add_special_tokens=True, pad_to_max_length=True)

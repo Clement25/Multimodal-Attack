@@ -222,9 +222,6 @@ class MOSI:
             print("Mode is not set properly (train/dev/test)")
             exit()
 
-
-
-
 class MOSEI:
     def __init__(self, config):
 

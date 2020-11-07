@@ -33,7 +33,6 @@ class MISA(nn.Module):
         self.visual_size = config.visual_size
         self.acoustic_size = config.acoustic_size
 
-
         self.input_sizes = input_sizes = [self.text_size, self.visual_size, self.acoustic_size]
         self.hidden_sizes = hidden_sizes = [int(self.text_size), int(self.visual_size), int(self.acoustic_size)]
         self.output_size = output_size = config.num_classes
