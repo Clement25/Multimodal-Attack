@@ -134,3 +134,6 @@ datasets/
 # checkpoints and jupyter tempory files
 src/checkpoints
 src/*.ipynb
+
+# vscode settings
+.vscode

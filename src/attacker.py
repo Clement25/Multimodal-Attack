@@ -66,7 +66,7 @@ class FGSMAttacker(object):
             t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask)
             t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = self._add_grad_reqr(t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask)
         
-            y_tilde = model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
+            y_tilde = model(t, v, a, l, bert_seqqnt, bert_sent_type, bert_sent_mask)
 
             if self.config.data == "ur_funny":
                 y = y.squeeze
@@ -84,7 +84,7 @@ class FGSMAttacker(object):
             None
         """
         raise NotImplementedError("Save data not implemented!")
-        ###################
+        ###################q
         ### coding here ###
         ###################
         return adv_data
