@@ -35,7 +35,6 @@ class Solver(object):
     
     @time_desc_decorator('Build Graph')
     def build(self, cuda=True):
-
         if self.model is None:
             self.model = getattr(models, self.train_config.model)(self.train_config)
         
@@ -245,8 +244,6 @@ class Solver(object):
         Metric scheme adapted from:
         https://github.com/yaohungt/Multimodal-Transformer/blob/master/src/eval_metrics.py
         """
-
-
         if self.train_config.data == "ur_funny":
             test_preds = np.argmax(y_pred, 1)
             test_truth = y_true
@@ -364,8 +361,3 @@ class Solver(object):
         loss += self.loss_recon(self.model.utt_a_recon, self.model.utt_a_orig)
         loss = loss/3.0
         return loss
-
-
-
-
-
