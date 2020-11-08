@@ -44,7 +44,6 @@ class MISA(nn.Module):
         # defining modules - two layer bidirectional LSTM with layer norm in between
 
         if self.config.use_bert:
-
             # Initializing a BERT bert-base-uncased style configuration
             bertconfig = BertConfig.from_pretrained('bert-base-uncased', output_hidden_states=True)
             self.bertmodel = BertModel.from_pretrained('bert-base-uncased', config=bertconfig)
@@ -153,9 +152,6 @@ class MISA(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(d_model=self.config.hidden_size, nhead=2)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
 
-        
-
-        
     def extract_features(self, sequence, lengths, rnn1, rnn2, layer_norm):
         packed_sequence = pack_padded_sequence(sequence, lengths)
 
@@ -179,11 +175,11 @@ class MISA(nn.Module):
         
         batch_size = lengths.size(0)
         
+        # import ipdb; ipdb.set_trace()
         if self.config.use_bert:
             bert_output = self.bertmodel(input_ids=bert_sent, 
                                          attention_mask=bert_sent_mask, 
                                          token_type_ids=bert_sent_type)      
-
             bert_output = bert_output[0]
 
             # masked mean
@@ -197,8 +193,6 @@ class MISA(nn.Module):
             sentences = self.embed(sentences)
             final_h1t, final_h2t = self.extract_features(sentences, lengths, self.trnn1, self.trnn2, self.tlayer_norm)
             utterance_text = torch.cat((final_h1t, final_h2t), dim=2).permute(1, 0, 2).contiguous().view(batch_size, -1)
-
-
 
         # extract features from visual modality
         final_h1v, final_h2v = self.extract_features(visual, lengths, self.vrnn1, self.vrnn2, self.vlayer_norm)

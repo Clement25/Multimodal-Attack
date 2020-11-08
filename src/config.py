@@ -75,7 +75,8 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--runs', type=int, default=5)
 
     # Bert
-    parser.add_argument('--use_bert', type=str2bool, default=True)
+    # parser.add_argument('--use_bert', type=str2bool, default=True)
+    parser.add_argument('--use_bert', type=str2bool, default=False)
     parser.add_argument('--use_cmd_sim', type=str2bool, default=True)
 
     # Train
