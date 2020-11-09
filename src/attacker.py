@@ -5,6 +5,7 @@ import torch.nn as nn
 from data_loader import get_loader
 from models import MISA
 from config import get_config
+from sklearn.metrics import classification_report, accuracy_score, f1_score
 
 class FGSMAttacker(object):
     """ FGSM back propogation
@@ -12,16 +13,19 @@ class FGSMAttacker(object):
     Modify data using FGSM gradient ascent and dump all data into pickle file.
     Evaluate new samples under different ascending step, yield and compare the results. 
     """
-    def __init__(self, epsilon, config, device='cuda'):
+    def __init__(self, epsilon, config, attconfig, device='cuda'):
         """Initialize an FGSM Attacker
         Args:
             epsilon (int): the step size of FGSM
-            config (dict): the configuration dictionary of the model
+            config (dict): configurations of the model and dataset
+            attconfig (dict): configurations of the attacker
+            device (str): place to store tensors and do computation
         Return:
             None
         """
         self.epsilon = epsilon
         self.config = config
+        self.attconfig = attconfig
         self.device = device
     
     def _to_gpu(self, *args):
@@ -98,6 +102,10 @@ class FGSMAttacker(object):
         loss += self.loss_cmd(self.model.utt_shared_a, self.model.utt_shared_v, 5)
         loss = loss/3.0
         return loss
+    
+    def calc_metrics(self, loss, acc, count):
+        if self.config.data == "ur_funny":
+            test_preds = np.argmax(y)
 
     def attack(self, model, ckpt_path='./checkpoints/best.std'):
         """Using FGSM method to attack input data
@@ -116,9 +124,14 @@ class FGSMAttacker(object):
         data_loader = self._load_data()
 
         if self.config.data == "ur_funny":
-            criterion = nn.MSELoss()
+            self.criterion = nn.CrossEntropyLoss(reduction="mean")
         elif self.config.data.lower() in ["mosi", "mosei"]:
-            criterion = nn.MSELoss() 
+            self.criterion = nn.MSELoss() 
+
+        all_loss = []
+        all_count = []
+        all_y_true = []
+        all_y_pred = []
 
         # Attack data batch by batch
         for batch in data_loader:
@@ -153,18 +166,39 @@ class FGSMAttacker(object):
             loss.backward()
 
             # perform the attack
-            # TODO: Now we didn't store attacked embeddings back (maybe too large to store). Instead we continuously change the weights of embedding. Considering adding all of these.
-            embed_weight = self.model.embed.weight
-            embed_weight += self.epsilon * embed_weight.grad
-            v_adv += self.epsilon * v.grad
-            a_adv += self.epsilon * a.grad
+            with torch.no_grad():
+                embed_weight = self.model.embed.weight
+                embed_weight += self.epsilon * embed_weight.grad
 
-        return v, a
-    
+            v_adv = v + self.epsilon * v.grad
+            a_adv = a + self.epsilon * a.grad
+
+            # Evaluate at once
+            y_true, y_pred, loss, num_samples = self.eval_adv(model, t, v_adv, a_adv, y, l, None, None, None)
+
+            all_loss.append(loss)
+            all_count.append(num_samples)
+
+            all_y_true.append(y_true)
+            all_y_pred.append(y_pred)
+
+            # Restore original embedding
+            with torch.no_grad():
+                embed_weight -= self.epsilon * embed_weight.grad
+        
+        y_true = np.concatenate(all_y_true, axis=0)
+        y_pred = np.concatenate(all_y_pred, axis=0)
+
+        # Show the report of evalutaion
+        self.calc_metrics(y_true, y_pred)
+
+        #TODO: Are these returns indeed needed?
+        return eval_loss, accuracy
+
     def save_data(self, data):
         """Store adversarial data back to disk
         Args:
-            data: Adversarial data in the readable format
+            data: Adversarial data in readable format
         Returns:
             None
         """
@@ -173,17 +207,35 @@ class FGSMAttacker(object):
         ### coding here ###
         ###################
     
-    def evaluate(self, data, model):
+    def eval_adv(self, model, *data):
         """Evaluate model performance with manufactured data
         Args:
             data: The same as above
             model: The same as above
         """
-        raise NotImplementedError("Evaluation not implemented!")
-        ###################
-        ### coding here ###
-        ###################
-        return None
+        # Note: bert_xxx are dummy placeholder for compliance
+        t, v, a, y_true, l, bert_sent, bert_sent_type, bert_sent_mask = data
+        self.model.eval()
+
+        with torch.no_grad():
+            self.model.zero_grad()
+            
+            y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
+
+            if self.train_config_data == "ur_funny":
+                y = y.squeeze()
+            
+            cls_loss = self.criterion(y_tilde, y)
+            # Count the number of samples for calculating the average
+            num_samples = t.size(0)
+
+        return y_true, y_tilde, cls_loss, num_samples
+
+    def attack_and_save(self, attconfig):
+        """The main function that packs up the whole attack process 
+        """
+
+        
 
 if __name__ == '__main__':
     # Use test data
