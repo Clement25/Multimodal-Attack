@@ -1,11 +1,16 @@
 import torch
 import numpy as np
 import torch.nn as nn
+import pickle
 
 from data_loader import get_loader
 from models import MISA
 from config import get_config
 from sklearn.metrics import classification_report, accuracy_score, f1_score
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import precision_recall_fscore_support
+
+from utils import to_gpu, time_desc_decorator, DiffLoss, MSE, SIMSE, CMD
 
 class FGSMAttacker(object):
     """ FGSM back propogation
@@ -13,7 +18,7 @@ class FGSMAttacker(object):
     Modify data using FGSM gradient ascent and dump all data into pickle file.
     Evaluate new samples under different ascending step, yield and compare the results. 
     """
-    def __init__(self, epsilon, config, attconfig, device='cuda'):
+    def __init__(self, epsilon, config, device='cuda'):
         """Initialize an FGSM Attacker
         Args:
             epsilon (int): the step size of FGSM
@@ -25,11 +30,11 @@ class FGSMAttacker(object):
         """
         self.epsilon = epsilon
         self.config = config
-        self.attconfig = attconfig
         self.device = device
     
     def _to_gpu(self, *args):
-        return x.to(self.device) for x in args 
+        return [x.to(self.device) for x in args]
+
     
     def _add_grad_reqr(self, *args):
         for x in args:
@@ -41,14 +46,14 @@ class FGSMAttacker(object):
         data_loader = get_loader(self.config, shuffle=False)
         return data_loader
     
-    def get_diff_loss(self):
+    def get_diff_loss(self, model):
 
-        shared_t = self.model.utt_shared_t
-        shared_v = self.model.utt_shared_v
-        shared_a = self.model.utt_shared_a
-        private_t = self.model.utt_private_t
-        private_v = self.model.utt_private_v
-        private_a = self.model.utt_private_a
+        shared_t = model.utt_shared_t
+        shared_v = model.utt_shared_v
+        shared_a = model.utt_shared_a
+        private_t = model.utt_private_t
+        private_v = model.utt_private_v
+        private_a = model.utt_private_a
 
         # Between private and shared
         loss = self.loss_diff(private_t, shared_t)
@@ -62,20 +67,20 @@ class FGSMAttacker(object):
 
         return loss
 
-    def get_domain_loss(self):
+    def get_domain_loss(self, model):
 
         if self.train_config.use_cmd_sim:
             return 0.0
         
         # Predicted domain labels
-        domain_pred_t = self.model.domain_label_t
-        domain_pred_v = self.model.domain_label_v
-        domain_pred_a = self.model.domain_label_a
+        domain_pred_t = model.domain_label_t
+        domain_pred_v = model.domain_label_v
+        domain_pred_a = model.domain_label_a
 
         # True domain labels
-        domain_true_t = self._to_gpu(torch.LongTensor([0]*domain_pred_t.size(0)))
-        domain_true_v = self._to_gpu(torch.LongTensor([1]*domain_pred_v.size(0)))
-        domain_true_a = self._to_gpu(torch.LongTensor([2]*domain_pred_a.size(0)))
+        domain_true_t = _to_gpu(torch.LongTensor([0]*domain_pred_t.size(0)))
+        domain_true_v = _to_gpu(torch.LongTensor([1]*domain_pred_v.size(0)))
+        domain_true_a = _to_gpu(torch.LongTensor([2]*domain_pred_a.size(0)))
 
         # Stack up predictions and true labels
         domain_pred = torch.cat((domain_pred_t, domain_pred_v, domain_pred_a), dim=0)
@@ -83,33 +88,93 @@ class FGSMAttacker(object):
 
         return self.domain_loss_criterion(domain_pred, domain_true)
     
-    def get_recon_loss(self, ):
+    def get_recon_loss(self, model, loss_recon):
 
-        loss = self.loss_recon(self.model.utt_t_recon, self.model.utt_t_orig)
-        loss += self.loss_recon(self.model.utt_v_recon, self.model.utt_v_orig)
-        loss += self.loss_recon(self.model.utt_a_recon, self.model.utt_a_orig)
+        loss = loss_recon(model.utt_t_recon, model.utt_t_orig)
+        loss += loss_recon(model.utt_v_recon, model.utt_v_orig)
+        loss += loss_recon(model.utt_a_recon, model.utt_a_orig)
         loss = loss/3.0
         return loss
 
-    def get_cmd_loss(self):
+    def get_cmd_loss(self, model):
 
         if not self.train_config.use_cmd_sim:
             return 0.0
 
         # losses between shared states
-        loss = self.loss_cmd(self.model.utt_shared_t, self.model.utt_shared_v, 5)
-        loss += self.loss_cmd(self.model.utt_shared_t, self.model.utt_shared_a, 5)
-        loss += self.loss_cmd(self.model.utt_shared_a, self.model.utt_shared_v, 5)
+        loss = loss_cmd(model.utt_shared_t, model.utt_shared_v, 5)
+        loss += loss_cmd(model.utt_shared_t, model.utt_shared_a, 5)
+        loss += loss_cmd(model.utt_shared_a, model.utt_shared_v, 5)
         loss = loss/3.0
         return loss
     
-    def calc_metrics(self, loss, acc, count):
+    def calc_metrics(self, y_true, y_pred):
         if self.config.data == "ur_funny":
-            test_preds = np.argmax(y)
+            test_preds = np.argmax(y_pred, 1)
+            test_truth = y_true
 
-    def attack(self, model, ckpt_path='./checkpoints/best.std'):
+            if self.config.print:
+                print("Confusion Matrix (pos/neg):")
+                print(confusion_matrix(test_truth, test_preds))
+                print("Classification Report (pos/neg):")
+                print(classification_report(test_truth, test_preds, digits=5))
+                print("Accuracy: (pos/neg)", accuracy_score(test_truth, test_preds))
+
+            return accuracy_score(test_truth, test_preds)
+        
+        else:
+            test_preds = y_pred
+            test_preds = y_true
+
+            non_zeros = np.array([i for i, e in enumerate(test_truth) if e != 0])
+
+            test_preds_a7 = np.clip(test_preds, a_min=-3., a_max=3.)
+            test_truth_a7 = np.clip(test_truth, a_min=-3., a_max=3.)
+            test_preds_a5 = np.clip(test_preds, a_min=-2., a_max=2.)
+            test_truth_a5 = np.clip(test_truth, a_min=-2., a_max=2.)
+
+            mae = np.mean(np.absolute(test_preds - test_truth))
+            corr = np.corrcoef(test_preds - test_truth)[0][1]
+            mult_a7 = self.multiclass_acc(test_preds_a7, test_truth_a7)
+            mult_a5 = self.multiclass_acc(test_preds_a5, test_truth_a5)
+            
+            f_score = f1_score((test_preds[non_zeros] > 0), (test_truth[non_zeros] > 0), average='weighted')
+
+            # pos - neg
+            binary_truth = (test_truth[non_zeros] > 0)
+            binary_preds = (test_preds[non_zeros] > 0)
+
+            if self.config.print:
+                print("mae:", mae)
+                print("corr:", corr)
+                print("mult_acc:", mult_a7)
+                print("Classification Report (pos/neg) :")
+                print(classification_report(binary_truth, binary_preds, digits=5))
+                print("Accuracy  (pos/neg)", accuracy_score(binary_truth,binary_preds))
+            
+            # non-neg-neg
+            binary_truth = (test_truth >= 0)
+            binary_preds = (test_preds >= 0)
+
+            if self.config.print:
+                print("Classification Report (non-neg/neg) :")
+                print(classification_report(binary_truth, binary_preds, digit=5))
+                print("Accuracy (non-neg/neg)", accuracy_score(binary_truth, binary_preds))
+            
+            return accuracy_score(binary_truth, binary_preds)
+
+    def _restore_model(self):
+        """Restore previously trained model
+        """
+        model = MISA(self.config)
+        model.load_state_dict(torch.load(self.config.ckpt_path))
+        data_loader = self._load_data()
+        return model
+
+
+    def attack(self, model, dataloader):
         """Using FGSM method to attack input data
-            ***core function for this class***
+            ***core function in this class***
         Args:
             model (nn.Module): The targeted model with trained parameters
             ckpt_path (str): The relative path to store the checkpoint file.
@@ -118,11 +183,6 @@ class FGSMAttacker(object):
             corresponding to each item in original inputs.
         """
         # load model and data
-        model = MISA(self.config)
-        self.model = model
-        model.load_state_dict(torch.load(ckpt_path))
-        data_loader = self._load_data()
-
         if self.config.data == "ur_funny":
             self.criterion = nn.CrossEntropyLoss(reduction="mean")
         elif self.config.data.lower() in ["mosi", "mosei"]:
@@ -132,6 +192,9 @@ class FGSMAttacker(object):
         all_count = []
         all_y_true = []
         all_y_pred = []
+
+        loss_recon = MSE()
+        loss_cmd = CMD()
 
         # Attack data batch by batch
         for batch in data_loader:
@@ -147,10 +210,10 @@ class FGSMAttacker(object):
                 y = y.squeezea
             
             cls_loss = criterion(y_tilde, y)
-            diff_loss = self.get_diff_loss()
-            domain_loss = self.get_domain_loss()
-            recon_loss = self.get_recon_loss()
-            cmd_loss = self.get_cmd_loss()
+            diff_loss = self.get_diff_loss(model)
+            domain_loss = self.get_domain_loss(model)
+            recon_loss = self.get_recon_loss(model, loss_recon)
+            cmd_loss = self.get_cmd_loss(model, loss_cmd)
             # line 127
 
             if self.config.use_cmd_sim:
@@ -167,7 +230,7 @@ class FGSMAttacker(object):
 
             # perform the attack
             with torch.no_grad():
-                embed_weight = self.model.embed.weight
+                embed_weight = model.embed.weight
                 embed_weight += self.epsilon * embed_weight.grad
 
             v_adv = v + self.epsilon * v.grad
@@ -182,7 +245,7 @@ class FGSMAttacker(object):
             all_y_true.append(y_true)
             all_y_pred.append(y_pred)
 
-            # Restore original embedding
+            # Restore the original embedding layer
             with torch.no_grad():
                 embed_weight -= self.epsilon * embed_weight.grad
         
@@ -190,9 +253,9 @@ class FGSMAttacker(object):
         y_pred = np.concatenate(all_y_pred, axis=0)
 
         # Show the report of evalutaion
-        self.calc_metrics(y_true, y_pred)
-
-        #TODO: Are these returns indeed needed?
+        accuracy = self.calc_metrics(y_true, y_pred)
+        eval_loss = np.mean(all_loss)
+        #TODO: Are these returns really needed?
         return eval_loss, accuracy
 
     def save_data(self, data):
@@ -202,10 +265,7 @@ class FGSMAttacker(object):
         Returns:
             None
         """
-        raise NotImplementedError("Save data not implemented!")
-        ###################q
-        ### coding here ###
-        ###################
+        pass
     
     def eval_adv(self, model, *data):
         """Evaluate model performance with manufactured data
@@ -231,14 +291,16 @@ class FGSMAttacker(object):
 
         return y_true, y_tilde, cls_loss, num_samples
 
-    def attack_and_save(self, attconfig):
+    def attack_and_save(self):
         """The main function that packs up the whole attack process 
+        (Currently not support "save" operation) 
         """
-
-        
+        model, data_loader = self._restore_model()
+        eval_loss, accuracy = self.attack(model, data_loader)
 
 if __name__ == '__main__':
     # Use test data
     config = get_config(mode='test')
-    Attacker = FGSMAttacker(epsilon=1e-2, config)
+    config = add_attspecconfig(config)
+    Attacker = FGSMAttacker(epsilon=1e-2, config=config)
     Attacker.attack()

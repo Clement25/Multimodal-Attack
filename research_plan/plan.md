@@ -16,3 +16,6 @@ $$ \eta = \epsilon * sign(\Delta_x J(\theta, x, y)) $$
 - The final results will show here.
 - Open a new branch named attack to do so
 
+### 3. Experiment Record
+* Nov. 6th 00:30 Finish plan writing
+* Nov. 9th 23:20 Finish attacker encoding

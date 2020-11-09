@@ -137,3 +137,17 @@ def get_config(parse=True, **optional_kwargs):
     kwargs.update(optional_kwargs)
 
     return Config(**kwargs)
+
+def add_config(optional_parser):
+    """Get configurations for the attacker
+    Param:
+        optional_args (ArgumentParser): Optional arguments which will be additional  
+    """
+    parser = argparse.ArgumentParser(parents=[optional_parser])
+
+    # Mode
+    parser.add_argument('--print', type=str2bool, default=True)
+    parser.add_argument('--ckpt_path', type=str, default='./checkpoints/best.std')
+
+    attconfig = parser.parse_args()
+    return attconfig
