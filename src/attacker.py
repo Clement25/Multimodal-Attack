@@ -46,7 +46,7 @@ class FGSMAttacker(object):
         data_loader = get_loader(self.config, shuffle=False)
         return data_loader
     
-    def get_diff_loss(self, model):
+    def get_diff_loss(self, model, loss_diff):
 
         shared_t = model.utt_shared_t
         shared_v = model.utt_shared_v
@@ -56,20 +56,20 @@ class FGSMAttacker(object):
         private_a = model.utt_private_a
 
         # Between private and shared
-        loss = self.loss_diff(private_t, shared_t)
-        loss += self.loss_diff(private_v, shared_v)
-        loss += self.loss_diff(private_a, shared_a)
+        loss = loss_diff(private_t, shared_t)
+        loss += loss_diff(private_v, shared_v)
+        loss += loss_diff(private_a, shared_a)
 
         # Across privates
-        loss += self.loss_diff(private_a, private_t)
-        loss += self.loss_diff(private_a, private_v)
-        loss += self.loss_diff(private_t, private_v)
+        loss += loss_diff(private_a, private_t)
+        loss += loss_diff(private_a, private_v)
+        loss += loss_diff(private_t, private_v)
 
         return loss
 
-    def get_domain_loss(self, model):
+    def get_domain_loss(self, model, domain_loss_criterion):
 
-        if self.train_config.use_cmd_sim:
+        if self.config.use_cmd_sim:
             return 0.0
         
         # Predicted domain labels
@@ -86,7 +86,7 @@ class FGSMAttacker(object):
         domain_pred = torch.cat((domain_pred_t, domain_pred_v, domain_pred_a), dim=0)
         domain_true = torch.cat((domain_true_t, domain_true_v, domain_true_a), dim=0)
 
-        return self.domain_loss_criterion(domain_pred, domain_true)
+        return domain_loss_criterion(domain_pred, domain_true)
     
     def get_recon_loss(self, model, loss_recon):
 
@@ -96,9 +96,9 @@ class FGSMAttacker(object):
         loss = loss/3.0
         return loss
 
-    def get_cmd_loss(self, model):
+    def get_cmd_loss(self, model, loss_cmd):
 
-        if not self.train_config.use_cmd_sim:
+        if not self.config.use_cmd_sim:
             return 0.0
 
         # losses between shared states
@@ -166,13 +166,13 @@ class FGSMAttacker(object):
     def _restore_model(self):
         """Restore previously trained model
         """
+        data_loader = self._load_data()
         model = MISA(self.config)
         model.load_state_dict(torch.load(self.config.ckpt_path))
-        data_loader = self._load_data()
-        return model
+        return model, data_loader
 
 
-    def attack(self, model, dataloader):
+    def attack(self, model, data_loader):
         """Using FGSM method to attack input data
             ***core function in this class***
         Args:
@@ -193,6 +193,8 @@ class FGSMAttacker(object):
         all_y_true = []
         all_y_pred = []
 
+        domain_loss_criterion = nn.CrossEntropyLoss(reduction="mean")
+        loss_diff = DiffLoss()
         loss_recon = MSE()
         loss_cmd = CMD()
 
@@ -201,17 +203,19 @@ class FGSMAttacker(object):
             model.zero_grad()
             t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
             batch_size = t.size(0)
-            t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, z, bert_sent, bert_sent_type, bert_sent_mask)
-            self._add_grad_reqr(t, v, a)
-        
+            t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask)
+            self._to_gpu(model)
+            # only vision and accoustic need gradient
+            self._add_grad_reqr(v, a)
+            
             y_tilde = model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
 
             if self.config.data == "ur_funny":
                 y = y.squeezea
             
-            cls_loss = criterion(y_tilde, y)
-            diff_loss = self.get_diff_loss(model)
-            domain_loss = self.get_domain_loss(model)
+            cls_loss = self.criterion(y_tilde, y)
+            diff_loss = self.get_diff_loss(model, loss_diff)
+            domain_loss = self.get_domain_loss(model, loss_diff)
             recon_loss = self.get_recon_loss(model, loss_recon)
             cmd_loss = self.get_cmd_loss(model, loss_cmd)
             # line 127
@@ -282,7 +286,7 @@ class FGSMAttacker(object):
             
             y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
 
-            if self.train_config_data == "ur_funny":
+            if self.config.data == "ur_funny":
                 y = y.squeeze()
             
             cls_loss = self.criterion(y_tilde, y)
@@ -301,6 +305,6 @@ class FGSMAttacker(object):
 if __name__ == '__main__':
     # Use test data
     config = get_config(mode='test')
-    config = add_attspecconfig(config)
+    # config = add_attspecconfig(config)
     Attacker = FGSMAttacker(epsilon=1e-2, config=config)
-    Attacker.attack()
+    Attacker.attack_and_save()

@@ -75,8 +75,8 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--runs', type=int, default=5)
 
     # Bert
-    # parser.add_argument('--use_bert', type=str2bool, default=True)
-    parser.add_argument('--use_bert', type=str2bool, default=False)
+    parser.add_argument('--use_bert', type=str2bool, default=True)
+    # parser.add_argument('--use_bert', type=str2bool, default=False)
     parser.add_argument('--use_cmd_sim', type=str2bool, default=True)
 
     # Train
@@ -112,6 +112,10 @@ def get_config(parse=True, **optional_kwargs):
     # Data
     parser.add_argument('--data', type=str, default='mosi')
 
+    # For attacker
+    parser.add_argument('--print', type=str2bool, default=True)
+    parser.add_argument('--ckpt_path', type=str, default='./checkpoints/best.std', help='path to store the checkpoint ".csd" files')
+
     # Parse arguments
     if parse:
         kwargs = parser.parse_args()
@@ -137,17 +141,3 @@ def get_config(parse=True, **optional_kwargs):
     kwargs.update(optional_kwargs)
 
     return Config(**kwargs)
-
-def add_config(optional_parser):
-    """Get configurations for the attacker
-    Param:
-        optional_args (ArgumentParser): Optional arguments which will be additional  
-    """
-    parser = argparse.ArgumentParser(parents=[optional_parser])
-
-    # Mode
-    parser.add_argument('--print', type=str2bool, default=True)
-    parser.add_argument('--ckpt_path', type=str, default='./checkpoints/best.std')
-
-    attconfig = parser.parse_args()
-    return attconfig
