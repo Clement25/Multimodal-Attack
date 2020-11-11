@@ -18,7 +18,7 @@ class FGSMAttacker(object):
     Modify data using FGSM gradient ascent and dump all data into pickle file.
     Evaluate new samples under different ascending step, yield and compare the results. 
     """
-    def __init__(self, epsilon, config, device='cuda'):
+    def __init__(self, config, device='cuda'):
         """Initialize an FGSM Attacker
         Args:
             epsilon (int): the step size of FGSM
@@ -28,7 +28,6 @@ class FGSMAttacker(object):
         Return:
             None
         """
-        self.epsilon = epsilon
         self.config = config
         self.device = device
     
@@ -151,8 +150,7 @@ class FGSMAttacker(object):
             test_truth_a5 = np.clip(test_truth, a_min=-2., a_max=2.)
 
             mae = np.mean(np.absolute(test_preds - test_truth))
-            import ipdb; ipdb.set_trace()
-            corr = np.corrcoef(test_preds - test_truth)[0][1]
+            corr = np.corrcoef(test_preds, test_truth)[0][1]
             mult_a7 = self.multiclass_acc(test_preds_a7, test_truth_a7)
             mult_a5 = self.multiclass_acc(test_preds_a5, test_truth_a5)
             
@@ -189,6 +187,12 @@ class FGSMAttacker(object):
         model.load_state_dict(torch.load(self.config.ckpt_path))
         return model, data_loader
 
+    def disp_attinfo(self, epsilon):
+        print('''\
+        ##########################################
+                FGSM attack (epsilon={})
+        ##########################################
+        '''.format(epsilon))
 
     def attack(self, model, data_loader):
         """Using FGSM method to attack input data
@@ -200,8 +204,10 @@ class FGSMAttacker(object):
             adv_data (dict[torch.Tensor]): A dictionary containing several tensors which are
             corresponding to each item in original inputs.
         """
-        # load model and data
+        epsilon = self.config.epsilon
+        self.disp_attinfo(epsilon)
 
+        # load model and data
         all_loss = []
         all_count = []
         all_y_true = []
@@ -211,6 +217,7 @@ class FGSMAttacker(object):
         loss_diff = DiffLoss()
         loss_recon = MSE()
         loss_cmd = CMD()
+
 
         # Attack data batch by batch
         for batch in data_loader:
@@ -250,10 +257,10 @@ class FGSMAttacker(object):
             # perform the attack
             with torch.no_grad():
                 embed_weight = model.embed.weight
-                embed_weight += self.epsilon * embed_weight.grad
+                embed_weight += epsilon * embed_weight.grad
 
-            v_adv = v + self.epsilon * v.grad
-            a_adv = a + self.epsilon * a.grad
+            v_adv = v + epsilon * v.grad
+            a_adv = a + epsilon * a.grad
 
             # Evaluate at once
             y_true, y_pred, loss, num_samples = self.eval_adv(model, t, v_adv, a_adv, y, l, None, None, None)
@@ -266,10 +273,10 @@ class FGSMAttacker(object):
 
             # Restore the original embedding layer
             with torch.no_grad():
-                embed_weight -= self.epsilon * embed_weight.grad
+                embed_weight -= epsilon * embed_weight.grad
         
-        y_true = np.concatenate(all_y_true, axis=0)
-        y_pred = np.concatenate(all_y_pred, axis=0)
+        y_true = np.concatenate(all_y_true, axis=0).squeeze()
+        y_pred = np.concatenate(all_y_pred, axis=0).squeeze()
 
         # Show the report of evalutaion
         accuracy = self.calc_metrics(y_true, y_pred)
@@ -324,5 +331,5 @@ if __name__ == '__main__':
     # Use test data
     config = get_config(mode='test')
     # config = add_attspecconfig(config)
-    Attacker = FGSMAttacker(epsilon=1e-1, config=config)
+    Attacker = FGSMAttacker(config=config)
     Attacker.attack_and_save()

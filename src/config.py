@@ -115,6 +115,7 @@ def get_config(parse=True, **optional_kwargs):
     # For attacker
     parser.add_argument('--print', type=str2bool, default=True)
     parser.add_argument('--ckpt_path', type=str, default='./checkpoints/best.std', help='path to store the checkpoint ".csd" files')
+    parser.add_argument('--epsilon', type=float, default=0.1)
 
     # Parse arguments
     if parse:
