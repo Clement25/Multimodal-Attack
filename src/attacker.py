@@ -32,6 +32,11 @@ class FGSMAttacker(object):
         self.config = config
         self.device = device
     
+        if self.config.data == "ur_funny":
+            self.criterion = nn.CrossEntropyLoss(reduction="mean")
+        elif self.config.data.lower() in ["mosi", "mosei"]:
+            self.criterion = nn.MSELoss() 
+
     def _to_gpu(self, *args):
         return [x.to(self.device) for x in args]
 
@@ -108,6 +113,18 @@ class FGSMAttacker(object):
         loss = loss/3.0
         return loss
     
+    def multiclass_acc(self, preds, truths):
+        """
+        Compute the multiclass accuracy w.r.t. groundtruth
+        :param preds: Float array representing the predictions, dimension (N,)
+        :param truths: Float/int array representing the groundtruth classes, dimension (N,)
+        :return: Classification accuracy
+        """
+        return np.sum(np.round(preds) == np.round(truths)) / float(len(truths))
+    
+    def _cuda_to_numpy(self, x):
+        return x.detach().cpu().numpy()
+
     def calc_metrics(self, y_true, y_pred):
         if self.config.data == "ur_funny":
             test_preds = np.argmax(y_pred, 1)
@@ -124,7 +141,7 @@ class FGSMAttacker(object):
         
         else:
             test_preds = y_pred
-            test_preds = y_true
+            test_truth = y_true
 
             non_zeros = np.array([i for i, e in enumerate(test_truth) if e != 0])
 
@@ -134,6 +151,7 @@ class FGSMAttacker(object):
             test_truth_a5 = np.clip(test_truth, a_min=-2., a_max=2.)
 
             mae = np.mean(np.absolute(test_preds - test_truth))
+            import ipdb; ipdb.set_trace()
             corr = np.corrcoef(test_preds - test_truth)[0][1]
             mult_a7 = self.multiclass_acc(test_preds_a7, test_truth_a7)
             mult_a5 = self.multiclass_acc(test_preds_a5, test_truth_a5)
@@ -158,7 +176,7 @@ class FGSMAttacker(object):
 
             if self.config.print:
                 print("Classification Report (non-neg/neg) :")
-                print(classification_report(binary_truth, binary_preds, digit=5))
+                print(classification_report(binary_truth, binary_preds, digits=5))
                 print("Accuracy (non-neg/neg)", accuracy_score(binary_truth, binary_preds))
             
             return accuracy_score(binary_truth, binary_preds)
@@ -183,10 +201,6 @@ class FGSMAttacker(object):
             corresponding to each item in original inputs.
         """
         # load model and data
-        if self.config.data == "ur_funny":
-            self.criterion = nn.CrossEntropyLoss(reduction="mean")
-        elif self.config.data.lower() in ["mosi", "mosei"]:
-            self.criterion = nn.MSELoss() 
 
         all_loss = []
         all_count = []
@@ -203,7 +217,8 @@ class FGSMAttacker(object):
             model.zero_grad()
             t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
             batch_size = t.size(0)
-            t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask)
+            # t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask)
+            t, v, a, y, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, bert_sent, bert_sent_type, bert_sent_mask)
             self._to_gpu(model)
             # only vision and accoustic need gradient
             self._add_grad_reqr(v, a)
@@ -243,11 +258,11 @@ class FGSMAttacker(object):
             # Evaluate at once
             y_true, y_pred, loss, num_samples = self.eval_adv(model, t, v_adv, a_adv, y, l, None, None, None)
 
-            all_loss.append(loss)
+            all_loss.append(loss.item())
             all_count.append(num_samples)
 
-            all_y_true.append(y_true)
-            all_y_pred.append(y_pred)
+            all_y_true.append(self._cuda_to_numpy(y_true))
+            all_y_pred.append(self._cuda_to_numpy(y_pred))
 
             # Restore the original embedding layer
             with torch.no_grad():
@@ -279,19 +294,22 @@ class FGSMAttacker(object):
         """
         # Note: bert_xxx are dummy placeholder for compliance
         t, v, a, y_true, l, bert_sent, bert_sent_type, bert_sent_mask = data
-        self.model.eval()
+        model.eval()
 
         with torch.no_grad():
-            self.model.zero_grad()
+            model.zero_grad()
             
-            y_tilde = self.model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
+            y_tilde = model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
 
             if self.config.data == "ur_funny":
                 y = y.squeeze()
             
-            cls_loss = self.criterion(y_tilde, y)
+            cls_loss = self.criterion(y_tilde, y_true)
             # Count the number of samples for calculating the average
             num_samples = t.size(0)
+
+        # Return to training mode for the next iteration
+        model.train()
 
         return y_true, y_tilde, cls_loss, num_samples
 
@@ -306,5 +324,5 @@ if __name__ == '__main__':
     # Use test data
     config = get_config(mode='test')
     # config = add_attspecconfig(config)
-    Attacker = FGSMAttacker(epsilon=1e-2, config=config)
+    Attacker = FGSMAttacker(epsilon=1e-1, config=config)
     Attacker.attack_and_save()
