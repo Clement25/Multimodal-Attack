@@ -9,14 +9,14 @@ from config import get_config
 from sklearn.metrics import classification_report, accuracy_score, f1_score
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import precision_recall_fscore_support
+from random import random
 
 from utils import to_gpu, time_desc_decorator, DiffLoss, MSE, SIMSE, CMD
 
-class FGSMAttacker(object):
-    """ FGSM back propogation
-    Rebuild trained model and backpropagate gradients to input data.
-    Modify data using FGSM gradient ascent and dump all data into pickle file.
-    Evaluate new samples under different ascending step, yield and compare the results. 
+class BaseAttacker(object):
+    """ Base attacker, the base class of any other attackers
+    Define basic member variables. Methods regarding to the propogation of target model are included.
+    Leave 3 function placeholders for the development of successors.
     """
     def __init__(self, config, device='cuda'):
         """Initialize an FGSM Attacker
@@ -93,7 +93,13 @@ class FGSMAttacker(object):
         return domain_loss_criterion(domain_pred, domain_true)
     
     def get_recon_loss(self, model, loss_recon):
-
+        """Calculate reconstruction loss using given function
+        Args:
+            model (torch.nn.module): The multimodal fusion model.
+            loss_recon (nn.Fuunctional): The loss function to compute the reconstruction loss. In original paper it's the MSE (mean square error) loss.
+        Return:
+            loss: Overall reconstruction loss of the model.
+        """
         loss = loss_recon(model.utt_t_recon, model.utt_t_orig)
         loss += loss_recon(model.utt_v_recon, model.utt_v_orig)
         loss += loss_recon(model.utt_a_recon, model.utt_a_orig)
@@ -187,12 +193,8 @@ class FGSMAttacker(object):
         model.load_state_dict(torch.load(self.config.ckpt_path))
         return model, data_loader
 
-    def disp_attinfo(self, epsilon):
-        print('''\
-        ##########################################
-                FGSM attack (epsilon={})
-        ##########################################
-        '''.format(epsilon))
+    def disp_attinfo(self):
+        raise NotImplementedError("Attack information displaying function hasn't yet implemented")
 
     def attack(self, model, data_loader):
         """Using FGSM method to attack input data
@@ -201,88 +203,10 @@ class FGSMAttacker(object):
             model (nn.Module): The targeted model with trained parameters
             ckpt_path (str): The relative path to store the checkpoint file.
         Returns:
-            adv_data (dict[torch.Tensor]): A dictionary containing several tensors which are
-            corresponding to each item in original inputs.
+            (Optional)
         """
-        epsilon = self.config.epsilon
-        self.disp_attinfo(epsilon)
-
-        # load model and data
-        all_loss = []
-        all_count = []
-        all_y_true = []
-        all_y_pred = []
-
-        domain_loss_criterion = nn.CrossEntropyLoss(reduction="mean")
-        loss_diff = DiffLoss()
-        loss_recon = MSE()
-        loss_cmd = CMD()
-
-
-        # Attack data batch by batch
-        for batch in data_loader:
-            model.zero_grad()
-            t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
-            batch_size = t.size(0)
-            # t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask)
-            t, v, a, y, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, bert_sent, bert_sent_type, bert_sent_mask)
-            self._to_gpu(model)
-            # only vision and accoustic need gradient
-            self._add_grad_reqr(v, a)
-            
-            y_tilde = model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
-
-            if self.config.data == "ur_funny":
-                y = y.squeezea
-            
-            cls_loss = self.criterion(y_tilde, y)
-            diff_loss = self.get_diff_loss(model, loss_diff)
-            domain_loss = self.get_domain_loss(model, loss_diff)
-            recon_loss = self.get_recon_loss(model, loss_recon)
-            cmd_loss = self.get_cmd_loss(model, loss_cmd)
-            # line 127
-
-            if self.config.use_cmd_sim:
-                similarity_loss = cmd_loss
-            else:
-                similarity_loss = domain_loss
-            
-            loss = cls_loss + \
-                self.config.diff_weight * diff_loss + \
-                self.config.sim_weight * similarity_loss + \
-                self.config.recon_weight * recon_loss
-            
-            loss.backward()
-
-            # perform the attack
-            with torch.no_grad():
-                embed_weight = model.embed.weight
-                embed_weight += epsilon * embed_weight.grad
-
-            v_adv = v + epsilon * v.grad
-            a_adv = a + epsilon * a.grad
-
-            # Evaluate at once
-            y_true, y_pred, loss, num_samples = self.eval_adv(model, t, v_adv, a_adv, y, l, None, None, None)
-
-            all_loss.append(loss.item())
-            all_count.append(num_samples)
-
-            all_y_true.append(self._cuda_to_numpy(y_true))
-            all_y_pred.append(self._cuda_to_numpy(y_pred))
-
-            # Restore the original embedding layer
-            with torch.no_grad():
-                embed_weight -= epsilon * embed_weight.grad
+        raise NotImplementedError("Main attack method hasn't been implemented yet")
         
-        y_true = np.concatenate(all_y_true, axis=0).squeeze()
-        y_pred = np.concatenate(all_y_pred, axis=0).squeeze()
-
-        # Show the report of evalutaion
-        accuracy = self.calc_metrics(y_true, y_pred)
-        eval_loss = np.mean(all_loss)
-        #TODO: Are these returns really needed?
-        return eval_loss, accuracy
 
     def save_data(self, data):
         """Store adversarial data back to disk
@@ -292,7 +216,7 @@ class FGSMAttacker(object):
             None
         """
         pass
-    
+
     def eval_adv(self, model, *data):
         """Evaluate model performance with manufactured data
         Args:
@@ -327,9 +251,143 @@ class FGSMAttacker(object):
         model, data_loader = self._restore_model()
         eval_loss, accuracy = self.attack(model, data_loader)
 
+class FGSMAttacker(BaseAttacker):
+    """ FGSM back propogation
+    Rebuild trained model and backpropagate gradients to input data.
+    Modify data using FGSM gradient ascent and dump all data into pickle file.
+    Evaluate new samples under different ascending step, yield and compare the results. 
+    """
+    def __init__(self, config):
+        super(FGSMAttacker, self).__init__(config=config)
+        if config.modals == "all":
+            attack_t = attack_v = attack_a = True
+        elif 'a' in config.modals:
+            attack_a = True
+        elif 'v' in config.modals:
+            attack_v = True
+        elif 't' in config.modals:
+            attack_t = True
+
+        self.config.attack_a = attack_a
+        self.config.attack_v = attack_v
+        self.config.attack_t = attack_t
+
+    def disp_attinfo(self, epsilon):
+        print('''\
+        ##########################################
+                FGSM attack (epsilon={})
+        ##########################################
+        '''.format(epsilon))
+
+    def attack(self, model, data_loader):
+        """Using FGSM method to attack input data
+            ***core function in this class***
+        Args:
+            model (nn.Module): The targeted model with trained parameters
+            ckpt_path (str): The relative path to store the checkpoint file.
+        Returns:
+            adv_data (dict[torch.Tensor]): A dictionary containing several tensors which are
+            corresponding to each item in original inputs.
+        """
+        epsilon = self.config.epsilon
+        self.disp_attinfo(epsilon)
+
+        # load model and data
+        all_loss = []
+        all_count = []
+        all_y_true = []
+        all_y_pred = []
+
+        domain_loss_criterion = nn.CrossEntropyLoss(reduction="mean")
+        loss_diff = DiffLoss()
+        loss_recon = MSE()
+        loss_cmd = CMD()
+
+        # Attack data batch by batch
+        for batch in data_loader:
+            model.zero_grad()
+            t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = batch
+            batch_size = t.size(0)
+            # t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, l, bert_sent, bert_sent_type, bert_sent_mask)
+            t, v, a, y, bert_sent, bert_sent_type, bert_sent_mask = self._to_gpu(t, v, a, y, bert_sent, bert_sent_type, bert_sent_mask)
+            self._to_gpu(model)
+            # only vision and accoustic need gradient
+            self._add_grad_reqr(v, a)
+            
+            y_tilde = model(t, v, a, l, bert_sent, bert_sent_type, bert_sent_mask)
+
+            if self.config.data == "ur_funny":
+                y = y.squeezea
+            
+            cls_loss = self.criterion(y_tilde, y)
+            diff_loss = self.get_diff_loss(model, loss_diff)
+            domain_loss = self.get_domain_loss(model, loss_diff)
+            recon_loss = self.get_recon_loss(model, loss_recon)
+            cmd_loss = self.get_cmd_loss(model, loss_cmd)
+
+            if self.config.use_cmd_sim:
+                similarity_loss = cmd_loss
+            else:
+                similarity_loss = domain_loss
+            
+            loss = cls_loss + \
+                self.config.diff_weight * diff_loss + \
+                self.config.sim_weight * similarity_loss + \
+                self.config.recon_weight * recon_loss
+            
+            loss.backward()
+
+            # perform the attack
+            if self.config.attack_t:
+                with torch.no_grad():
+                    embed_weight = model.embed.weight
+                    embed_weight += epsilon * embed_weight.grad
+
+            if self.config.attack_v:
+                v_adv = v + epsilon * v.grad
+            
+            if self.config.attack_t:
+                a_adv = a + epsilon * a.grad
+
+            # Evaluate at once
+            y_true, y_pred, loss, num_samples = self.eval_adv(model, t, v_adv, a_adv, y, l, None, None, None)
+
+            all_loss.append(loss.item())
+            all_count.append(num_samples)
+
+            all_y_true.append(self._cuda_to_numpy(y_true))
+            all_y_pred.append(self._cuda_to_numpy(y_pred))
+
+            # Restore the original embedding layer
+            if self.config.attack_t:
+                with torch.no_grad():
+                    embed_weight -= epsilon * embed_weight.grad
+        
+        y_true = np.concatenate(all_y_true, axis=0).squeeze()
+        y_pred = np.concatenate(all_y_pred, axis=0).squeeze()
+
+        # Show the report of evalutaion
+        accuracy = self.calc_metrics(y_true, y_pred)
+        eval_loss = np.mean(all_loss)
+        #TODO: Are these returns really needed?
+        return eval_loss, accuracy
+    
+
 if __name__ == '__main__':
     # Use test data
     config = get_config(mode='test')
+
+    # set random seed
+    random_name = str(random())
+    random_seed = 1234
+    torch.manual_seed(random_seed)
+
+    np.random.seed(random_seed)
+
+    # set deterministic
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
     # config = add_attspecconfig(config)
     Attacker = FGSMAttacker(config=config)
     Attacker.attack_and_save()

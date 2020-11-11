@@ -117,6 +117,9 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--ckpt_path', type=str, default='./checkpoints/best.std', help='path to store the checkpoint ".csd" files')
     parser.add_argument('--epsilon', type=float, default=0.1)
 
+    # For FGSM attack
+    parser.add_argument('--victim_modals', type=str, default='all', help='The victim modal(s)')
+
     # Parse arguments
     if parse:
         kwargs = parser.parse_args()
@@ -139,6 +142,11 @@ def get_config(parse=True, **optional_kwargs):
 
     # Namespace => Dictionary
     kwargs = vars(kwargs)
+
+    # simplify one variable
+    kwargs['modals'] = kwargs['victim_modals']
+    del kwargs['victim_modals']
+
     kwargs.update(optional_kwargs)
 
     return Config(**kwargs)
