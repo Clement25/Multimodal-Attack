@@ -259,6 +259,7 @@ class FGSMAttacker(BaseAttacker):
     """
     def __init__(self, config):
         super(FGSMAttacker, self).__init__(config=config)
+        attack_t = attack_v = attack_a = False
         if config.modals == "all":
             attack_t = attack_v = attack_a = True
         elif 'a' in config.modals:
@@ -342,12 +343,9 @@ class FGSMAttacker(BaseAttacker):
                 with torch.no_grad():
                     embed_weight = model.embed.weight
                     embed_weight += epsilon * embed_weight.grad
-
-            if self.config.attack_v:
-                v_adv = v + epsilon * v.grad
-            
-            if self.config.attack_t:
-                a_adv = a + epsilon * a.grad
+                                            
+            v_adv = v + epsilon * v.grad if self.config.attack_v else v
+            a_adv = a + epsilon * a.grad if self.config.attack_a else a
 
             # Evaluate at once
             y_true, y_pred, loss, num_samples = self.eval_adv(model, t, v_adv, a_adv, y, l, None, None, None)
