@@ -262,12 +262,13 @@ class FGSMAttacker(BaseAttacker):
         attack_t = attack_v = attack_a = False
         if config.modals == "all":
             attack_t = attack_v = attack_a = True
-        elif 'a' in config.modals:
-            attack_a = True
-        elif 'v' in config.modals:
-            attack_v = True
-        elif 't' in config.modals:
-            attack_t = True
+        else:
+            if 'a' in config.modals:
+                attack_a = True
+            if 'v'  in config.modals:
+                attack_v = True
+            if 't' in config.modals:
+                attack_t = True
 
         self.config.attack_a = attack_a
         self.config.attack_v = attack_v
