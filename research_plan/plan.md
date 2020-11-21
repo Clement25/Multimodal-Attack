@@ -20,5 +20,5 @@ Where $\epsilon$ is the step size for the gradient ascent.
 
 ### 3. Experiment Record
 * Nov. 6th 00:30 Finish plan writing
-* Nov. 9th 23:20 Finish attacker encoding
+* Nov. 9th 23:20 Finish attacker coding
 * Nov. 11th 15:20 Finish attacker debugging and the first attack experiment
