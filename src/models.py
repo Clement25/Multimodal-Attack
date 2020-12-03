@@ -205,7 +205,6 @@ class MISA(nn.Module):
         # Shared-private encoders
         self.shared_private(utterance_text, utterance_video, utterance_audio)
 
-
         if not self.config.use_cmd_sim:
             # discriminator
             reversed_shared_code_t = ReverseLayerF.apply(self.utt_shared_t, self.config.reverse_grad_weight)

@@ -91,6 +91,9 @@ def get_loader(config, shuffle=True):
         # lengths are useful later in using RNNs
         lengths = torch.LongTensor([sample[0][0].shape[0] for sample in batch])
 
+        if labels.size(1) == 7:
+            labels = labels[0]
+
         return sentences, visual, acoustic, labels, lengths, bert_sentences, bert_sentence_types, bert_sentence_att_mask
 
 
